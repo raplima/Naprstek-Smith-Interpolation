@@ -5,37 +5,28 @@ using System.Text;
 using System.Threading.Tasks;
 using System.IO;
 using System.Windows.Forms;
-using System.Drawing;
-using GeoEngine.Core.GXNet;
-using Geosoft.GX.Controls;
-using Geosoft.Desktop.GXNet;
-using CoreConstant = GeoEngine.Core.GXNet.Constant;
 
-namespace NaprstekSmithV18
+namespace NSI_V8
 {
-    static class Globals
+    public static class Globals
     {
         //*USER-INPUT VARIABLES
-        public static string inputFile = "Database"; //input database
-        public static string xName = "x"; //the name of the x channel
-        public static string yName = "y"; //the name of the y channel
-        public static string dataName = "data"; //the name of the data channel
-        public static string outputFile = ""; //output file
+        public static string inputFile = "BaseModel1-250mInterval-1nTNoise.txt"; //raw data file with the format of X - Y - Value - Line number, tab delimited
         public static double cellSize = 50; //edge size of each square cell in metres
-        public static double interpDist = 250; //metres away that will be interpolated
-        public static int maxLoop = 50; //the number of times the interpolation loop will be processed
+        public static double interpDist = 125; //metres away that will be interpolated
+        public static int maxLoop = 75; //the number of times the interpolation loop will be processed
         public static double searchStepSize = 0.25; //how much of a cell we will "travel" each search step
-        public static double cellSizeF = 100; //resampled final cell size
-        public static double trendM = 100; //100 - median % location (so 0 is no trending, 100 is full trending) (%)
+        public static double cellSizeF = 50; //resampled final cell size
+        public static double trendM = 100; //100 - median % location (so 0 is no trending, 100 is full trending)
         public static bool autoStop = true; //a checkbox of whether or not to auto stop
         public static double angleSearch = 10; //the number of degrees it will move each time when searching away from the initial eigenvector
-        public static double extendPastEdge = 1; //extend past the edge of the min/max of the grid this many cells
         public static double multiSmooth = 0; //smooth the multiplier grid before applying the normalization process (0 is no smoothing, 100 is max smoothing) (%)
         public static bool spatialSmooth = true; //a checkbox of whether or not to use spatial smoothing (in almost all cases, should be used)
+        public static int outputwritebool = 0; //if 0, outputs in x y value. if 1, outputs in a format easy for importing into Oasis Montaj.
         //*********************
     }
 
-    class cellData
+    public class cellData
     {
         //Properties
         public double[,] X { get; set; }
@@ -79,462 +70,99 @@ namespace NaprstekSmithV18
         }
     }
 
-    public class Execute : BaseForm
+    class NSI_V8
     {
-        private System.Windows.Forms.Label m_lblX;
-        private System.Windows.Forms.TextBox m_tbX;
-
-        //Constructor
-        public Execute()
-            : base()
+        static void Main()
         {
-            InitializeForm();
-        }
-
-        public Execute(IntPtr pGeo)
-            : base(pGeo)
-        {
-            InitializeForm();
-        }
-
-        protected override void Dispose(bool disposing)
-        {
-            base.Dispose(disposing);
-        }
-
-        #region BaseForm Overrides
-        protected override void InitializeForm()
-        {
-
-            StartGrowFormDuringTranslation();
-            TranslateControls();
-            base.InitializeForm();
-
-
-
-            EndGrowFormDuringTranslation();
-        }
-
-
-        public override bool bValidateDialog(ref string strINIError, bool bUseErrorProvider)
-        {
-            bool bValid = true;
-
-            if (!base.bValidateDialog(ref strINIError, bUseErrorProvider))
-                bValid = false;
-
-            if (bValid)
+            //**********READ CONFIG FILE
+            FileStream readConfig = new FileStream("MTG_config.txt", FileMode.Open, FileAccess.Read);
+            StreamReader readerConfig = new StreamReader(readConfig);
+            Globals.inputFile = readerConfig.ReadLine();
+            Globals.cellSize = Convert.ToDouble(readerConfig.ReadLine());
+            Globals.cellSizeF = Convert.ToDouble(readerConfig.ReadLine());
+            Globals.interpDist = Convert.ToDouble(readerConfig.ReadLine());
+            Globals.maxLoop = Convert.ToInt32(readerConfig.ReadLine());
+            Globals.trendM = Convert.ToDouble(readerConfig.ReadLine());
+            Globals.multiSmooth = Convert.ToDouble(readerConfig.ReadLine());
+            Globals.angleSearch = Convert.ToDouble(readerConfig.ReadLine());
+            double autostopcheck = Convert.ToDouble(readerConfig.ReadLine());
+            if (autostopcheck == 1)
             {
-
-            }
-            return bValid;
-        }
-
-        #endregion
-
-        private static DialogResult ShowInputDialog()
-        {
-            System.Drawing.Size size = new System.Drawing.Size(340, 400);
-            Form inputBox = new Form();
-
-            inputBox.FormBorderStyle = System.Windows.Forms.FormBorderStyle.FixedDialog;
-            inputBox.ClientSize = size;
-            inputBox.Text = "User Variables";
-            inputBox.MinimizeBox = false;
-            inputBox.MaximizeBox = false;
-
-            //Database
-            Label textLabel = new Label() { Left = 5, Top = 5, Text = "Database name" };
-            textLabel.Size = new System.Drawing.Size(160, 23);
-            inputBox.Controls.Add(textLabel);
-
-            System.Windows.Forms.TextBox textBox = new TextBox();
-            textBox.Size = new System.Drawing.Size(160, 23);
-            textBox.Location = new System.Drawing.Point(5, 28);
-            textBox.Text = Globals.inputFile;
-            inputBox.Controls.Add(textBox);
-
-            //Data channel
-            Label textLabel1 = new Label() { Left = 175, Top = 5, Text = "Data channel name" };
-            textLabel1.Size = new System.Drawing.Size(160, 23);
-            inputBox.Controls.Add(textLabel1);
-
-            System.Windows.Forms.TextBox textBox1 = new TextBox();
-            textBox1.Size = new System.Drawing.Size(160, 23);
-            textBox1.Location = new System.Drawing.Point(175, 28);
-            textBox1.Text = Globals.dataName;
-            inputBox.Controls.Add(textBox1);
-
-            //x channel
-            Label textLabel2 = new Label() { Left = 5, Top = 60, Text = "x position channel name" };
-            textLabel2.Size = new System.Drawing.Size(160, 23);
-            inputBox.Controls.Add(textLabel2);
-
-            System.Windows.Forms.TextBox textBox2 = new TextBox();
-            textBox2.Size = new System.Drawing.Size(160, 23);
-            textBox2.Location = new System.Drawing.Point(5, 83);
-            textBox2.Text = Globals.xName;
-            inputBox.Controls.Add(textBox2);
-
-            //y channel
-            Label textLabel3 = new Label() { Left = 175, Top = 60, Text = "y position channel name" };
-            textLabel3.Size = new System.Drawing.Size(160, 23);
-            inputBox.Controls.Add(textLabel3);
-
-            System.Windows.Forms.TextBox textBox3 = new TextBox();
-            textBox3.Size = new System.Drawing.Size(160, 23);
-            textBox3.Location = new System.Drawing.Point(175, 83);
-            textBox3.Text = Globals.yName;
-            inputBox.Controls.Add(textBox3);
-
-            //GRID CELL SIZE
-            Label textLabel4 = new Label() { Left = 5, Top = 115, Text = "Interpolation grid cell size" };
-            textLabel4.Size = new System.Drawing.Size(160, 23);
-            inputBox.Controls.Add(textLabel4);
-
-            System.Windows.Forms.TextBox textBox4 = new TextBox();
-            textBox4.Size = new System.Drawing.Size(160, 23);
-            textBox4.Location = new System.Drawing.Point(5, 138);
-            textBox4.Text = Convert.ToString(Globals.cellSize);
-            inputBox.Controls.Add(textBox4);
-
-            //INTERPOLATION DISTANCE
-            Label textLabel6 = new Label() { Left = 5, Top = 170, Text = "Interpolation distance" };
-            textLabel6.Size = new System.Drawing.Size(160, 23);
-            inputBox.Controls.Add(textLabel6);
-
-            System.Windows.Forms.TextBox textBox6 = new TextBox();
-            textBox6.Size = new System.Drawing.Size(160, 23);
-            textBox6.Location = new System.Drawing.Point(5, 193);
-            textBox6.Text = Convert.ToString(Globals.interpDist);
-            inputBox.Controls.Add(textBox6);
-
-            //FINAL CELL SIZE
-            Label textLabel7 = new Label() { Left = 175, Top = 115, Text = "Final cell size" };
-            textLabel7.Size = new System.Drawing.Size(160, 23);
-            inputBox.Controls.Add(textLabel7);
-
-            System.Windows.Forms.TextBox textBox7 = new TextBox();
-            textBox7.Size = new System.Drawing.Size(160, 23);
-            textBox7.Location = new System.Drawing.Point(175, 138);
-            textBox7.Text = Convert.ToString(Globals.cellSizeF);
-            inputBox.Controls.Add(textBox7);
-
-            //MAX NUMBER OF LOOPS
-            Label textLabel8 = new Label() { Left = 175, Top = 170, Text = "Maximum # of loops" };
-            textLabel8.Size = new System.Drawing.Size(160, 23);
-            inputBox.Controls.Add(textLabel8);
-
-            System.Windows.Forms.TextBox textBox8 = new TextBox();
-            textBox8.Size = new System.Drawing.Size(160, 23);
-            textBox8.Location = new System.Drawing.Point(175, 193);
-            textBox8.Text = Convert.ToString(Globals.maxLoop);
-            inputBox.Controls.Add(textBox8);
-
-            //TREND MULTIPLIER
-            Label textLabel9 = new Label() { Left = 5, Top = 225, Text = "Trending factor (0-100)" };
-            textLabel9.Size = new System.Drawing.Size(160, 23);
-            inputBox.Controls.Add(textLabel9);
-
-            System.Windows.Forms.TextBox textBox9 = new TextBox();
-            textBox9.Size = new System.Drawing.Size(160, 23);
-            textBox9.Location = new System.Drawing.Point(5, 248);
-            textBox9.Text = Convert.ToString(Globals.trendM);
-            inputBox.Controls.Add(textBox9);
-
-            //MULTIPLIER GRID SMOOTHER
-            Label textLabel12 = new Label() { Left = 175, Top = 225, Text = "Multiplier smoother (0-100)" };
-            textLabel12.Size = new System.Drawing.Size(160, 23);
-            inputBox.Controls.Add(textLabel12);
-
-            System.Windows.Forms.TextBox textBox12 = new TextBox();
-            textBox12.Size = new System.Drawing.Size(160, 23);
-            textBox12.Location = new System.Drawing.Point(175, 248);
-            textBox12.Text = Convert.ToString(Globals.multiSmooth);
-            inputBox.Controls.Add(textBox12);
-
-            //ANGLE SEARCH
-            Label textLabel11 = new Label() { Left = 5, Top = 280, Text = "Theta" };
-            textLabel9.Size = new System.Drawing.Size(160, 23);
-            inputBox.Controls.Add(textLabel11);
-
-            System.Windows.Forms.TextBox textBox10 = new TextBox();
-            textBox10.Size = new System.Drawing.Size(160, 23);
-            textBox10.Location = new System.Drawing.Point(5, 303);
-            textBox10.Text = Convert.ToString(Globals.angleSearch);
-            inputBox.Controls.Add(textBox10);
-
-            //AUTOSTOP CHECKBOX
-            Label textLabel10 = new Label() { Left = 25, Top = 340, Text = "Automatic stopping?" };
-            textLabel10.Size = new System.Drawing.Size(140, 23);
-            inputBox.Controls.Add(textLabel10);
-
-            System.Windows.Forms.CheckBox chkbxAuto = new CheckBox();
-            chkbxAuto.Location = new System.Drawing.Point(5, 335);
-            chkbxAuto.Checked = Globals.autoStop;
-            inputBox.Controls.Add(chkbxAuto);
-
-            //SPATIAL SMOOTHING CHECKBOX
-            Label textLabel13 = new Label() { Left = 195, Top = 340, Text = "Spatial Smoothing?" };
-            textLabel13.Size = new System.Drawing.Size(160, 23);
-            inputBox.Controls.Add(textLabel13);
-
-            System.Windows.Forms.CheckBox chkbxSpatial = new CheckBox();
-            chkbxSpatial.Location = new System.Drawing.Point(175, 335);
-            chkbxSpatial.Checked = Globals.autoStop;
-            inputBox.Controls.Add(chkbxSpatial);
-
-            //BUTTONS
-            Button okButton = new Button();
-            okButton.DialogResult = System.Windows.Forms.DialogResult.OK;
-            okButton.Name = "okButton";
-            okButton.Size = new System.Drawing.Size(75, 23);
-            okButton.Text = "&OK";
-            okButton.Location = new System.Drawing.Point(size.Width - 80 - 80, 370);
-            inputBox.Controls.Add(okButton);
-
-            Button cancelButton = new Button();
-            cancelButton.DialogResult = System.Windows.Forms.DialogResult.Cancel;
-            cancelButton.Name = "cancelButton";
-            cancelButton.Size = new System.Drawing.Size(75, 23);
-            cancelButton.Text = "&Cancel";
-            cancelButton.Location = new System.Drawing.Point(size.Width - 80, 370);
-            inputBox.Controls.Add(cancelButton);
-
-            inputBox.AcceptButton = okButton;
-            inputBox.CancelButton = cancelButton;
-
-            DialogResult result = inputBox.ShowDialog();
-            Globals.inputFile = textBox.Text;
-            Globals.dataName = textBox1.Text;
-            Globals.xName = textBox2.Text;
-            Globals.yName = textBox3.Text;
-            Globals.cellSize = Convert.ToDouble(textBox4.Text);
-            Globals.interpDist = Convert.ToDouble(textBox6.Text);
-            Globals.cellSizeF = Convert.ToDouble(textBox7.Text);
-            Globals.maxLoop = Convert.ToInt32(textBox8.Text);
-            Globals.trendM = Convert.ToDouble(textBox9.Text);
-            Globals.angleSearch = Convert.ToDouble(textBox10.Text);
-            Globals.multiSmooth = Convert.ToDouble(textBox12.Text);
-            Globals.autoStop = chkbxAuto.Checked;
-            Globals.spatialSmooth = chkbxSpatial.Checked;
-            return result;
-        }
-
-        [CGXAttribute("")]
-        public static void Main()
-        {
-            //***********USER INPUT
-            //string input = Globals.inputFile;
-            DialogResult formResult = ShowInputDialog();
-
-            if (formResult != DialogResult.OK)
-            {
-                MessageBox.Show("Process cancelled.");
-                return;
-            }
-
-            //****GEOSOFT VARIABLES
-            CGX_NET pGeo = null;
-            CDB hDB = null;
-            CVV hVVx = null;
-            CVV hVVy = null;
-            CVV hVVv = null;
-            CVM hVMx = null;
-            CVM hVMy = null;
-            CVM hVMv = null;
-            CVA hVA = null;
-
-            Int32 xChan, yChan, vChan, iLine; // database symbols
-
-            int iVA, iL, iLines, iS;
-            DoubleVector dDatax = null;
-            DoubleVector dDatay = null;
-            DoubleVector dDatav = null;
-
-            //****GEOSOFT IMPORTING
-            // --- Initialize ---
-            pGeo = new CGX_NET();
-            if (pGeo == null)
-            {
-                MessageBox.Show("Unable to start Geosoft session");
-                return;
-            }
-
-            // --- 
-            // Open a database.
-            // Note that all databases created by normal Geosoft users will have
-            // user name "SUPER" with password "".  Third-party or custom applications
-            // may create databases that require a user-name and password, in which
-            // case you require these values to open the database.
-            // ---
-            hDB = CDB.Open(Globals.inputFile, "SUPER", "");
-
-            // --- Get the channel handle ---
-            xChan = hDB.FindSymb(Globals.xName, CoreConstant.DB_SYMB_CHAN);
-            if (xChan == CoreConstant.NULLSYMB)
-            {
-                MessageBox.Show(Globals.xName + " channel not found in database " + Globals.inputFile);
-                return;
-            }
-            yChan = hDB.FindSymb(Globals.yName, CoreConstant.DB_SYMB_CHAN);
-            if (yChan == CoreConstant.NULLSYMB)
-            {
-                MessageBox.Show(Globals.yName + " channel not found in database " + Globals.inputFile);
-                return;
-            }
-            vChan = hDB.FindSymb(Globals.dataName, CoreConstant.DB_SYMB_CHAN);
-            if (vChan == CoreConstant.NULLSYMB)
-            {
-                MessageBox.Show(Globals.dataName + " channel not found in database " + Globals.inputFile);
-                return;
-            }
-
-            // --- Lock channel for read-writer ---
-            hDB.LockSymb(xChan, CoreConstant.DB_LOCK_READWRITE, CoreConstant.DB_WAIT_NONE);
-            hDB.LockSymb(yChan, CoreConstant.DB_LOCK_READWRITE, CoreConstant.DB_WAIT_NONE);
-            hDB.LockSymb(vChan, CoreConstant.DB_LOCK_READWRITE, CoreConstant.DB_WAIT_NONE);
-
-            // --- do we need a VV or a VA? ---
-            iVA = hDB.iGetColVA(xChan); // number of elements in a VA, 1 if its a VV
-            if (iVA == 1)
-            {
-                // --- Create a VV to hold data array ---
-                hVVx = CVV.CreateExt(CoreConstant.GS_DOUBLE, 0);
-                hVVy = CVV.CreateExt(CoreConstant.GS_DOUBLE, 0);
-                hVVv = CVV.CreateExt(CoreConstant.GS_DOUBLE, 0);
+                Globals.autoStop = true;
             }
             else
             {
-                // --- its a VA channel ---
-                hVA = CVA.CreateExt(CoreConstant.GS_DOUBLE, 0, iVA);
-                MessageBox.Show("Need to write code here!");
+                Globals.autoStop = false;
             }
+            double spatialsmoothing = Convert.ToDouble(readerConfig.ReadLine());
+            if (spatialsmoothing == 1)
+            {
+                Globals.spatialSmooth = true;
+            }
+            else
+            {
+                Globals.spatialSmooth = false;
+            }
+            Globals.outputwritebool = Convert.ToInt32(readerConfig.ReadLine());
+            readConfig.Close();
 
-            // --- Get a real VM to hold the data in memory ---
-            hVMx = CVM.Create(CoreConstant.GS_REAL, 0);
-            hVMy = CVM.Create(CoreConstant.GS_REAL, 0);
-            hVMv = CVM.Create(CoreConstant.GS_REAL, 0);
-
-            // --- Count selected lines ---
-            iLines = hDB.iCountSelLines();
-
-            // --- Go through all selected lines ---
-            iL = 0;
-            iLine = hDB.FirstSelLine();
+            //**********IMPORT GRID
+            Console.WriteLine("Importing Data");
+            string temp;
 
             List<double> X = new List<double>();
             List<double> Y = new List<double>();
             List<double> Value = new List<double>();
             List<double> Line = new List<double>();
 
-            CSYS.Progress(1);
-            CSYS.ProgName("Reading database.", 0);
-
-            do
+            FileStream myfile = new FileStream(Globals.inputFile, FileMode.Open, FileAccess.Read);
+            StreamReader reader = new StreamReader(myfile);
+            while (!reader.EndOfStream)
             {
-                // --- Break if line is not a valid line ---
-                if (hDB.iIsLineValid(iLine) == 0) break;
-
-                // --- Update progress ---
-                CSYS.ProgUpdateL(iL, iLines);
-
-                // --- Read Data ---
-                if (iVA == 1)
+                temp = reader.ReadLine();
+                if (temp == "")
                 {
-                    // --- get VV data ---
-                    hDB.GetChanVV(iLine, xChan, hVVx);
-                    hDB.GetChanVV(iLine, yChan, hVVy);
-                    hDB.GetChanVV(iLine, vChan, hVVv);
                 }
                 else
                 {
-                    MessageBox.Show("Need code here");
-                    // --- get VA data ---
-                    //hDB.GetChanVA(iLine, iChan, hVA);
-
-                    // --- 
-                    // Get the VV to the VA data.  This VV contains all VA data
-                    // by element, then by row.  The VV is owned by the VA, so you
-                    // cannot destroy the VA or the VV will become invalid.
-                    // ---
-
-                    //hVV = hVA.GetFullVV();
+                    var delimiters = new char[] { '\t' };
+                    var segments = temp.Split(delimiters, StringSplitOptions.RemoveEmptyEntries);
+                    int track = 0;
+                    foreach (var segment in segments)
+                    {
+                        if (track == 0)
+                        {
+                            X.Add(Convert.ToDouble(segment));
+                        }
+                        else if (track == 1)
+                        {
+                            Y.Add(Convert.ToDouble(segment));
+                        }
+                        else if (track == 2)
+                        {
+                            Value.Add(Convert.ToDouble(segment));
+                        }
+                        else if (track == 3)
+                        {
+                            Line.Add(Convert.ToDouble(segment));
+                        }
+                        track++;
+                    }
                 }
-
-                // --- 
-                // Get data VM from the VV.  This will re-size the VM to
-                // hold all the data in the VV.
-                // ---
-
-                CVV.CopyVVtoVM(hVMx, hVVx);
-                iS = hVVx.iLength();
-                dDatax = CGX_NET.GetDoubleVM(hVMx, iS);
-                for (int i = 0; i < iS; i++)
-                {
-                    X.Add(dDatax[i]);
-                }
-
-                CVV.CopyVVtoVM(hVMy, hVVy);
-                iS = hVVy.iLength();
-                dDatay = CGX_NET.GetDoubleVM(hVMy, iS);
-                for (int i = 0; i < iS; i++)
-                {
-                    Y.Add(dDatay[i]);
-                }
-
-                CVV.CopyVVtoVM(hVMv, hVVv);
-                iS = hVVv.iLength();
-                dDatav = CGX_NET.GetDoubleVM(hVMv, iS);
-                for (int i = 0; i < iS; i++)
-                {
-                    Value.Add(dDatav[i]);
-                }
-
-                // --- Advance to Next Line ---
-                iLine = hDB.NextSelLine(iLine);
-                iL++;
-            } while (true);
-
-            //cleanup
-            CSYS.Progress(0);
-            hDB.UnLockSymb(xChan);
-            hDB.UnLockSymb(yChan);
-            hDB.UnLockSymb(vChan);
-            if (hVMx != null) hVMx.Dispose();
-            if (hVMy != null) hVMy.Dispose();
-            if (hVMv != null) hVMv.Dispose();
-            if (hVVx != null && (iVA != 1)) hVVx.Dispose();
-            if (hVVy != null && (iVA != 1)) hVVy.Dispose();
-            if (hVVv != null && (iVA != 1)) hVVv.Dispose();
-            hDB.Dispose();
+            }
+            myfile.Close();
             //***********************************
 
             //****************FULL GRID PROCEDURE
-            CSYS.Progress(1);
-            CSYS.ProgName("Gridding Pt 1", 0);
-            //Find and remove any dummy values
-            X.RemoveAll(i => i.Equals(-2147483647));
-            Y.RemoveAll(i => i.Equals(-2147483647));
-            Value.RemoveAll(i => i.Equals(-2147483647));
-            X.RemoveAll(i => i.Equals(-1.0E32));
-            Y.RemoveAll(i => i.Equals(-1.0E32));
-            Value.RemoveAll(i => i.Equals(-1.0E32));
             //Find the edges of the total grid area
-
-            double extendM = (Globals.cellSize * Globals.extendPastEdge);
-            double maxX = X.Max() + extendM;
-            double maxY = Y.Max() + extendM;
-            double minX = X.Min() - extendM;
-            double minY = Y.Min() - extendM;
-
-            int lengthX = Convert.ToInt32(Math.Ceiling(((maxX - minX) / Globals.cellSize)));
-            if (((maxX - minX) % Globals.cellSize) == 0) //if the division is perfect then we need to add one
+            Console.WriteLine("Gridding");
+            int lengthX = Convert.ToInt32(Math.Ceiling(((X.Max() - X.Min()) / Globals.cellSize)));
+            if (((X.Max() - X.Min()) % Globals.cellSize) == 0) //if the division is perfect then we need to add one
             {
                 lengthX += 1;
             }
-            int lengthY = Convert.ToInt32(Math.Ceiling(((maxY - minY) / Globals.cellSize)));
-            if (((maxY - minY) % Globals.cellSize) == 0) //if the division is perfect then we need to add one
+            int lengthY = Convert.ToInt32(Math.Ceiling(((Y.Max() - Y.Min()) / Globals.cellSize)));
+            if (((Y.Max() - Y.Min()) % Globals.cellSize) == 0) //if the division is perfect then we need to add one
             {
                 lengthY += 1;
             }
@@ -544,12 +172,14 @@ namespace NaprstekSmithV18
             double[,] tempV = new double[lengthX, lengthY];
             int[,] tempF = new int[lengthX, lengthY];
 
+            double minX = X.Min();
+            double minY = Y.Min();
+
             double[,] xposit = new double[lengthX, lengthY];
             double[,] yposit = new double[lengthX, lengthY];
 
             for (int k = 0; k < X.Count; k++)
             {
-                CSYS.ProgUpdateL(k, X.Count);
                 //ints, will round down, therefore the xPos will be in the grid as using the bottom left point as the reference.
                 int xPos = Convert.ToInt32(Math.Floor((X[k] - minX) / Globals.cellSize));
                 int yPos = Convert.ToInt32(Math.Floor((Y[k] - minY) / Globals.cellSize));
@@ -562,7 +192,6 @@ namespace NaprstekSmithV18
                 tempV[xPos, yPos] += Value[k]; //Add the value of that reading to the cell.
                 tempF[xPos, yPos]++; //Account for how many readings have been assigned to the cell.
             }
-            CSYS.Progress(0);
 
             int[, ,] tempclose = new int[tempX.GetUpperBound(0) + 1, tempX.GetUpperBound(1) + 1, 8];
             int[, , ,] tempclose1 = new int[tempX.GetUpperBound(0) + 1, tempX.GetUpperBound(1) + 1, 8, 2];
@@ -585,11 +214,8 @@ namespace NaprstekSmithV18
             }
             //Now go through all cells, and assign values to the ones that have no data currently, or determine if they are too far away from real data to use. 
             //During this process we will also find all closest data to each cell which will be information needed when normalizing.
-            CSYS.Progress(1);
-            CSYS.ProgName("Gridding Pt 2", 0);
             for (int i = 0; i < lengthX; i++)
             {
-                CSYS.ProgUpdateL(i, lengthX);
                 for (int j = 0; j < lengthY; j++)
                 {
                     if (gridedData.Flag[i, j] != 1)
@@ -706,7 +332,6 @@ namespace NaprstekSmithV18
 
                 }
             }
-            CSYS.Progress(0);
             //***********************************
 
             //************************ADD MIN VAL
@@ -732,21 +357,35 @@ namespace NaprstekSmithV18
                 }
             }
 
-            if (minVal < 0)
+            //Need to add some positive DC offset to ensure no division by 0 (if 0s exist in this dataset)
+            double dcoffset = 0;
+            if (minVal < 1)
             {
-                //once found, add this amount to each data point
+                dcoffset = 100;
+                //add this to the dataset
                 for (int i = 0; i < lengthX; i++)
                 {
                     for (int j = 0; j < lengthY; j++)
                     {
                         if (gridedData.Flag[i, j] != -1)
                         {
-                            gridedData.Value[i, j] = gridedData.Value[i, j] + Math.Abs(minVal);
+                            gridedData.Value[i, j] = gridedData.Value[i, j] + dcoffset;
+                            if (minVal < 0) //also add minvalue to get the lowest value in the dataset to 100
+                            {
+                                gridedData.Value[i, j] = gridedData.Value[i, j] + Math.Abs(minVal);
+                            }
                         }
                     }
                 }
-                maxVal = maxVal + Math.Abs(minVal); //also add the minVal to the maxVal so can use it properly later on
             }
+
+            //also add the minVal and DC offset to the maxVal so can use it properly later on
+            if (minVal < 0)
+            {
+                maxVal = maxVal + Math.Abs(minVal);
+            }
+            maxVal = maxVal + dcoffset;
+
             //***********************************
 
             //*****************ALPHA-TRIMMED MEAN
@@ -879,9 +518,6 @@ namespace NaprstekSmithV18
             cellData realReplace = new cellData(tempX3, tempY3, tempV3, tempF3);
             cellData previousGrid = new cellData(tempX5, tempY5, tempV5, tempF5);
 
-            CSYS.Progress(1);
-            CSYS.ProgName("Interpolating", 0);
-
             int looping = 0;
             int currentLoop = 0;
 
@@ -890,9 +526,12 @@ namespace NaprstekSmithV18
 
             int numStops = 0;
 
+            double[] meandiffs = new double[Globals.maxLoop];
+
+            Console.WriteLine("Interpolating. Current iteration:");
+
             while (looping == 0)
             {
-                CSYS.ProgUpdateL(currentLoop, Globals.maxLoop);
                 //****************************DerivV3
                 if (currentLoop == 0) //this is the first loop, therefore need the data from gridedData
                 {
@@ -1277,7 +916,6 @@ namespace NaprstekSmithV18
                         }
                     }
                 }
-
                 //***********************************
 
                 //REAL DATA SCALING******************
@@ -1831,6 +1469,10 @@ namespace NaprstekSmithV18
                             {
                                 tempMR = maxVal;
                             }
+                            else if (tempMR < minVal + dcoffset) //do not let the scaled data become less than the min value (+ DC offset) found in the raw data
+                            {
+                                tempMR = minVal + dcoffset;
+                            }
                             realReplace.Value[i, j] = tempMR; //replace with scaled data
                             realReplace.Flag[i, j] = 0; //not real
                         }
@@ -1864,10 +1506,13 @@ namespace NaprstekSmithV18
                         diffs.Sort();
                         double diffMedi = diffs[diffs.Count / 2];
 
+                        meandiffs[currentLoop] = diffAvg;
+
                         if (currentLoop != 1)
                         {
                             double meanDiff = diffAvg - previousMean;
                             double medianDiff = diffMedi - previousMedian;
+
                             if (meanDiff >= 0 && medianDiff >= 0)
                             {
                                 numStops++;
@@ -1896,21 +1541,43 @@ namespace NaprstekSmithV18
                 {
                     looping = 1;
                 }
+                Console.WriteLine(currentLoop);
             }
-            CSYS.Progress(0);
+            //***********************************
+
+            Console.WriteLine("Finished Interpolating");
+
+            //*******************SUBTRACT MIN VAL
+            //Subtract off the min val found earlier, as well as the DC offset
+            if (minVal < 1)
+            {
+                for (int i = 0; i < lengthX; i++)
+                {
+                    for (int j = 0; j < lengthY; j++)
+                    {
+                        if (realReplace.Flag[i, j] != -1)
+                        {
+                            realReplace.Value[i, j] = realReplace.Value[i, j] - dcoffset;
+                            if (minVal < 0)
+                            {
+                                realReplace.Value[i, j] = realReplace.Value[i, j] - Math.Abs(minVal);
+                            }
+                        }
+                    }
+                }
+            }
             //***********************************
 
             //**************************SUBSAMPLE
-            CSYS.Progress(1);
-            CSYS.ProgName("Resampling Pt 1", 0);
+            Console.WriteLine("Subsampling");
             //Find the edges of the total grid area
-            int lengthXF = Convert.ToInt32(Math.Ceiling(((maxX - minX) / Globals.cellSizeF)));
-            if (((maxX - minX) % Globals.cellSizeF) == 0) //if the division is perfect then we need to add one
+            int lengthXF = Convert.ToInt32(Math.Ceiling(((X.Max() - X.Min()) / Globals.cellSizeF)));
+            if (((X.Max() - X.Min()) % Globals.cellSizeF) == 0) //if the division is perfect then we need to add one
             {
                 lengthXF += 1;
             }
-            int lengthYF = Convert.ToInt32(Math.Ceiling(((maxY - minY) / Globals.cellSizeF)));
-            if (((maxY - minY) % Globals.cellSizeF) == 0) //if the division is perfect then we need to add one
+            int lengthYF = Convert.ToInt32(Math.Ceiling(((Y.Max() - Y.Min()) / Globals.cellSizeF)));
+            if (((Y.Max() - Y.Min()) % Globals.cellSizeF) == 0) //if the division is perfect then we need to add one
             {
                 lengthYF += 1;
             }
@@ -1925,7 +1592,6 @@ namespace NaprstekSmithV18
             //Make sure we only use original data at first, and get those cells completed. After that we assign any data to the remaining cells.
             for (int k = 0; k < X.Count; k++)
             {
-                CSYS.ProgUpdateL(k, X.Count);
                 //ints, will round down, therefore the xPos will be in the grid as using the bottom left point as the reference.
                 int xPos = Convert.ToInt32(Math.Floor((X[k] - minX) / Globals.cellSizeF));
                 int yPos = Convert.ToInt32(Math.Floor((Y[k] - minY) / Globals.cellSizeF));
@@ -1935,14 +1601,7 @@ namespace NaprstekSmithV18
                 tempYF[xPos, yPos] += Y[k] - ypositf[xPos, yPos]; //Add the y pos of that reading to the cell.
                 //tempXF[xPos, yPos] = ((xPos * Globals.cellSizeF) + minX + (Globals.cellSizeF / 2)); //Essentially round the position to the center of the cell
                 //tempYF[xPos, yPos] = ((yPos * Globals.cellSizeF) + minY + (Globals.cellSizeF / 2)); //Essentially round the position to the center of the cell
-                if (minVal < 0)
-                {
-                    tempVF[xPos, yPos] += Value[k] + Math.Abs(minVal); //Add the value of that reading to the cell.
-                }
-                else
-                {
-                    tempVF[xPos, yPos] += Value[k]; //Add the value of that reading to the cell.
-                }
+                tempVF[xPos, yPos] += Value[k]; //Add the value of that reading to the cell.
                 tempFF[xPos, yPos]++; //Account for how many readings have been assigned to the cell.
             }
 
@@ -1969,17 +1628,11 @@ namespace NaprstekSmithV18
                 }
             }
 
-            CSYS.Progress(0);
-
-            CSYS.Progress(1);
-            CSYS.ProgName("Resampling Pt 2", 0);
-
             cellData finalData = new cellData(tempXF, tempYF, tempVF, tempFF);
 
             //Check through all grid cells, and if a cell has more than one reading in it, average the value over the number of readings.
             for (int i = 0; i < lengthXF; i++)
             {
-                CSYS.ProgUpdateL(i, lengthXF);
                 for (int j = 0; j < lengthYF; j++)
                 {
                     if (finalData.Flag[i, j] >= 1) //real data cell
@@ -2003,36 +1656,15 @@ namespace NaprstekSmithV18
                     }
                 }
             }
-            CSYS.Progress(0);
-            //***********************************
-
-            //*******************SUBTRACT MIN VAL
-            if (minVal < 0)
-            {
-                //Subtract off the min val found earlier
-                for (int i = 0; i < lengthXF; i++)
-                {
-                    for (int j = 0; j < lengthYF; j++)
-                    {
-                        if (finalData.Flag[i, j] != -1)
-                        {
-                            finalData.Value[i, j] = finalData.Value[i, j] - Math.Abs(minVal);
-                        }
-                    }
-                }
-            }
             //***********************************
 
             //*****************************OUTPUT
-            CSYS.Progress(1);
-            CSYS.ProgName("Writing ASCII grid file.", 0);
-
             string spsm = "";
             string spsmtxt = "";
             if (Globals.spatialSmooth == true)
             {
                 spsm = "Sy";
-                spsmtxt = "True";                
+                spsmtxt = "True";
             }
             else
             {
@@ -2040,56 +1672,91 @@ namespace NaprstekSmithV18
                 spsmtxt = "False";
             }
 
-            Globals.outputFile = Globals.inputFile + "-" + Globals.cellSize + "m" + Globals.cellSizeF + "m" + Globals.interpDist + "m" + currentLoop + "x" + Globals.trendM + "t" + Globals.multiSmooth + "s" + Globals.angleSearch + "Th" + spsm + ".txt";
-            System.IO.StreamWriter myfile2 = new System.IO.StreamWriter(Globals.outputFile, true);
-            //file. setprecision(10); //Set the precision of the output data to 10 sig digs. Do this to not allow incorrect values in sci notation.
+            string outputFile = Globals.inputFile + "-" + Globals.cellSize + "m" + Globals.cellSizeF + "m" + Globals.interpDist + "m" + currentLoop + "x" + Globals.trendM + "t" + Globals.multiSmooth + "s" + Globals.angleSearch + "Th" + spsm + ".txt";
+            System.IO.StreamWriter myfile2 = new System.IO.StreamWriter(outputFile, true);
 
+            // lower left corner information used for cases 1 and 2:
             double botleftX = minX + Globals.cellSizeF / 2;
             double botleftY = minY + Globals.cellSizeF / 2;
 
-            //info lines
-            myfile2.WriteLine("Grid created using Tomas Naprstek and Richard S. Smith's interpolation method: Multi-trend gridding V17. Generated by Geosoft's Oasis Montaj.");
-            myfile2.WriteLine("Using Geosoft's Oasis Montaj, enter the following information into: 'Grid and Image'->'Utilities'->'Import ASCII Grid...'.");
-            myfile2.WriteLine("***************************************");
-            myfile2.WriteLine("ASCII Grid File: " + Globals.outputFile);
-            myfile2.WriteLine("Output grid file (*.grd): " + Globals.inputFile + "-" + Globals.cellSize + "m" + Globals.cellSizeF + "m" + Globals.interpDist + "m" + currentLoop + "x" + Globals.trendM + "t" + Globals.multiSmooth + "s" + Globals.angleSearch + "Th" + spsm);
-            myfile2.WriteLine("Number of ASCII lines to skip: 21");
-            myfile2.WriteLine("Numper of points in each row: " + lengthYF);
-            myfile2.WriteLine("Number of rows: " + lengthXF);
-            myfile2.WriteLine("Row orientation: Left bottom to top");
-            myfile2.WriteLine("Dummy value: -999999");
-            myfile2.WriteLine("X grid point separation: " + Globals.cellSizeF);
-            myfile2.WriteLine("Y grid point separation: " + Globals.cellSizeF);
-            myfile2.WriteLine("X location of bottom left point: " + botleftX);
-            myfile2.WriteLine("Y location of bottom left point: " + botleftY);
-            myfile2.WriteLine("Grid rotation angle, CCW degrees: 0");
-            myfile2.WriteLine("# of iterations required: " + currentLoop);
-            myfile2.WriteLine("Trending Factor: " + Globals.trendM);
-            myfile2.WriteLine("Multiplier grid smoother: " + Globals.multiSmooth);
-            myfile2.WriteLine("Theta: " + Globals.angleSearch);
-            myfile2.WriteLine("Spatial smoothing: " + spsmtxt);
-            myfile2.WriteLine("***************************************");
-            //loop for making the ascii grid file
-            for (int i = 0; i < lengthXF; i++)
+            switch (Globals.outputwritebool)
             {
-                CSYS.ProgUpdateL(i, lengthXF);
-                string tempLine = "";
-                for (int j = 0; j < lengthYF; j++)
-                {
-                    tempLine = tempLine + finalData.Value[i, j] + "\t";
-                }
-                myfile2.WriteLine(tempLine);
+                case 0:
+
+                    //file.setprecision(10); //Set the precision of the output data to 10 sig digs. Do this to not allow incorrect values in sci notation.
+                    for (int i = 0; i < lengthXF; i++)
+                    {
+                        for (int j = 0; j < lengthYF; j++)
+                        {
+                            myfile2.WriteLine(finalData.X[i, j] + "\t" + finalData.Y[i, j] + "\t" + finalData.Value[i, j]);
+                        }
+                    }
+                    myfile2.Close();
+                    break;
+                //***********************************
+
+                case 1:
+
+                    //info lines
+                    myfile2.WriteLine("Grid created using Tomas Naprstek and Richard S. Smith's interpolation method: Multi-trend gridding V19.");
+                    myfile2.WriteLine("Using Geosoft's Oasis Montaj, enter the following information into: 'Grid and Image'->'Utilities'->'Import ASCII Grid...'.");
+                    myfile2.WriteLine("***************************************");
+                    myfile2.WriteLine("ASCII Grid File: " + outputFile);
+                    myfile2.WriteLine("Output grid file (*.grd): " + Globals.inputFile + "-" + Globals.cellSize + "m" + Globals.cellSizeF + "m" + Globals.interpDist + "m" + currentLoop + "x" + Globals.trendM + "t" + Globals.multiSmooth + "s" + Globals.angleSearch + "Th" + spsm);
+                    myfile2.WriteLine("Number of ASCII lines to skip: 21");
+                    myfile2.WriteLine("Numper of points in each row: " + lengthYF);
+                    myfile2.WriteLine("Number of rows: " + lengthXF);
+                    myfile2.WriteLine("Row orientation: Left bottom to top");
+                    myfile2.WriteLine("Dummy value: -999999");
+                    myfile2.WriteLine("X grid point separation: " + Globals.cellSizeF);
+                    myfile2.WriteLine("Y grid point separation: " + Globals.cellSizeF);
+                    myfile2.WriteLine("X location of bottom left point: " + botleftX);
+                    myfile2.WriteLine("Y location of bottom left point: " + botleftY);
+                    myfile2.WriteLine("Grid rotation angle, CCW degrees: 0");
+                    myfile2.WriteLine("# of iterations required: " + currentLoop);
+                    myfile2.WriteLine("Trending Factor: " + Globals.trendM);
+                    myfile2.WriteLine("Multiplier grid smoother: " + Globals.multiSmooth);
+                    myfile2.WriteLine("Theta: " + Globals.angleSearch);
+                    myfile2.WriteLine("Spatial smoothing: " + spsmtxt);
+                    myfile2.WriteLine("***************************************");
+                    //loop for making the ascii grid file
+                    for (int i = 0; i < lengthXF; i++)
+                    {
+                        string tempLine = "";
+                        for (int j = 0; j < lengthYF; j++)
+                        {
+                            tempLine = tempLine + finalData.Value[i, j] + "\t";
+                        }
+                        myfile2.WriteLine(tempLine);
+                    }
+                    break;
+
+                case 2:
+                    // User selected ASCII Raster format.
+                    // Some QGIS versions have trouble reading the reader from the case 1 file
+
+                    myfile2.WriteLine("nrows " + lengthYF);
+                    myfile2.WriteLine("ncols " + lengthXF);
+                    myfile2.WriteLine("xllcorner " + botleftX);
+                    myfile2.WriteLine("yllcorner " + botleftY);
+                    myfile2.WriteLine("cellsize " + Globals.cellSizeF);
+                    myfile2.WriteLine("nodata_value -999999");
+
+                    //loop for making the ascii grid file
+                    for (int i = lengthYF - 1; i >= 0; i--)
+                    {
+                        string tempLine = "";
+                        for (int j = 0; j < lengthXF; j++)
+                        {
+                            tempLine = tempLine + finalData.Value[j, i] + "\t";
+                        }
+                        myfile2.WriteLine(tempLine);
+                    }
+                    break;
+
             }
             myfile2.Close();
-            CSYS.Progress(0);
-            MessageBox.Show("Interpolation complete! ASCII grid file generated.");
             //***********************************
-
-            //*****************CALL READASCIIGRID
-            //int successGX = CSYS.iRunGX("readasciigrid");
-            //***********************************
-
-            return;
         }
     }
 }
